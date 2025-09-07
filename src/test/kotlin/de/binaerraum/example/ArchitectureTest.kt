@@ -1,7 +1,12 @@
 package de.binaerraum.example
 
+import com.tngtech.archunit.core.domain.JavaClass
 import com.tngtech.archunit.core.importer.ClassFileImporter
+import com.tngtech.archunit.core.importer.ImportOption
+import com.tngtech.archunit.lang.ArchCondition
 import com.tngtech.archunit.lang.ArchRule
+import com.tngtech.archunit.lang.ConditionEvents
+import com.tngtech.archunit.lang.SimpleConditionEvent
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
@@ -10,7 +15,9 @@ import org.junit.jupiter.api.Test
 
 class ArchitectureTest {
 
-    private val classes = ClassFileImporter().importPackages("de.binaerraum")
+    private val classes = ClassFileImporter()
+        .withImportOption(ImportOption.DoNotIncludeTests())
+        .importPackages("de.binaerraum.example")
 
     @Test
     fun `controller should only depend on service`() {
@@ -49,6 +56,21 @@ class ArchitectureTest {
     fun `repository should not depend on service or controller`() {
         val rule: ArchRule = classes()
             .that().resideInAPackage("de.binaerraum.example.repository")
+            .should().onlyDependOnClassesThat()
+            .resideInAnyPackage(
+                "de.binaerraum.example.model",
+                "java..",
+                "kotlin..",
+                "org.jetbrains.."
+            )
+
+        rule.check(classes)
+    }
+
+    @Test
+    fun `model classes should not depend on other layers`() {
+        val rule: ArchRule = classes()
+            .that().resideInAPackage("de.binaerraum.example.model")
             .should().onlyDependOnClassesThat()
             .resideInAnyPackage(
                 "de.binaerraum.example.model",
@@ -111,6 +133,26 @@ class ArchitectureTest {
         val rule: ArchRule = classes()
             .that().areAnnotatedWith(Service::class.java)
             .should().resideInAPackage("de.binaerraum.example.service")
+
+        rule.check(classes)
+    }
+
+    @Test
+    fun `classes should have at most 10 methods`() {
+        val haveAtMostTenMethods: ArchCondition<JavaClass> =
+            object : ArchCondition<JavaClass>("have at most 10 methods") {
+                override fun check(item: JavaClass, events: ConditionEvents) {
+                    val methodCount = item.methods.size
+                    if (methodCount > 10) {
+                        val message = "${item.name} has $methodCount methods, which exceeds the limit of 10"
+                        events.add(SimpleConditionEvent.violated(item, message))
+                    }
+                }
+            }
+
+        val rule: ArchRule = classes()
+            .that().resideInAPackage("de.binaerraum.example..")
+            .should(haveAtMostTenMethods)
 
         rule.check(classes)
     }
